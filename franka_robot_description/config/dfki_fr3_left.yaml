@@ -1,8 +1,0 @@
-robot_config:
-  urdf_file: "robots/fr3/fr3.urdf.xacro"
-  arm_id: "fr3"
-  arm_prefix: "franka_left"
-  gripper_type: "none"
-  arm_controller: "cartesian_impedance_controller"
-  xyz: "-0.06 0.585 0"
-  rpy: "0 0 0"

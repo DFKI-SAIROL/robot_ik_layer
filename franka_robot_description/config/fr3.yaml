@@ -1,7 +1,0 @@
-robot_config:
-  urdf_file: "robots/fr3/fr3.urdf.xacro"
-  arm_id: "fr3"
-  arm_prefix: ""
-  gripper_type: "none"
-  xyz: "0 0 0"
-  rpy: "0 0 0"
