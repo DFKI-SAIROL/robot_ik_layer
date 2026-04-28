@@ -1,4 +1,4 @@
-#include "../include/franka_safety_layer/vis.hpp"
+#include "../include/vis.hpp"
 
 // Assuming the OBB struct is defined in the header, e.g.:
 /*

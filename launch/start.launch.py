@@ -52,7 +52,7 @@ def generate_robot_nodes(context):
 
             nodes.append(
                 Node(
-                    package='franka_safety_layer',
+                    package='robot_ik_layer',
                     executable='safety_node',
                     name='safety_node',
                     namespace=config['namespace'],
@@ -64,7 +64,7 @@ def generate_robot_nodes(context):
                 IncludeLaunchDescription(
                     PythonLaunchDescriptionSource(
                         PathJoinSubstitution([
-                            FindPackageShare('franka_safety_layer'), 'launch', 'move_group.launch.py'
+                            FindPackageShare('robot_ik_layer'), 'launch', 'move_group.launch.py'
                         ])
                     ),
                     launch_arguments={

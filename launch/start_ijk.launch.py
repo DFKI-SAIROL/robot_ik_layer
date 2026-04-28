@@ -41,7 +41,7 @@ def generate_robot_nodes(context):
 
             nodes.append(
                 Node(
-                    package="franka_safety_layer",
+                    package="robot_ik_layer",
                     executable="safety_node",
                     name="safety_node",
                     namespace=config['namespace'],
@@ -74,7 +74,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'safety_config_file',
             default_value=PathJoinSubstitution([
-                FindPackageShare('franka_safety_layer'), 'config', 'safety_params.yaml'
+                FindPackageShare('robot_ik_layer'), 'config', 'safety_params.yaml'
             ]),
             description='Path to the safety parameters config file',
         ),

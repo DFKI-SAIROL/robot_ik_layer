@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(franka_safety_layer)
+project(robot_ik_later)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -23,11 +23,9 @@ find_package(moveit_core REQUIRED)
 find_package(pinocchio REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
-
 include_directories(
   include
 )
-
 
 add_executable(safety_node src/franka_ijk.cpp src/safety_layer.cpp src/vis.cpp)
 
@@ -52,8 +50,6 @@ ament_target_dependencies(safety_node
 install(TARGETS safety_node
   DESTINATION lib/${PROJECT_NAME}
 )
-
-
 
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch)

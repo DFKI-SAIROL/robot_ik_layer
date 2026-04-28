@@ -1,4 +1,4 @@
-#include "../include/franka_safety_layer/safety_layer.hpp"
+#include "../include/safety_layer.hpp"
 
 
 SafetyLayer::SafetyLayer()

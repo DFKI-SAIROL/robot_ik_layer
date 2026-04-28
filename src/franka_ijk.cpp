@@ -1,4 +1,4 @@
-#include "../include/franka_safety_layer/franka_ijk.hpp"
+#include "../include/franka_ijk.hpp"
 
 Franka_IJK::Franka_IJK() : Node("franka_ijk") 
 {
