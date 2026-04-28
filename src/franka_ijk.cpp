@@ -156,19 +156,18 @@ bool Franka_IJK::loadPinocchioModel()
     return false;
   }
 
-  std::string end_effector_link_ = end_effector_frame_;
-  if (end_effector_link_.empty())
+  if (end_effector_frame_.empty())
   {
-    end_effector_link_ = arm_prefix_ + "rh_p12_rn_grasp_point";
-    RCLCPP_WARN(this->get_logger(), "end_effector_frame parameter not set. Falling back to default: %s", end_effector_link_.c_str());
+    end_effector_frame_ = arm_prefix_ + "rh_p12_rn_grasp_point";
+    RCLCPP_WARN(this->get_logger(), "end_effector_frame parameter not set. Falling back to default: %s", end_effector_frame_.c_str());
   }
 
-  if (!model_.existFrame(end_effector_link_)) {
-    RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", end_effector_link_.c_str());
+  if (!model_.existFrame(end_effector_frame_)) {
+    RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", end_effector_frame_.c_str());
     return false;
   }
 
-  ee_frame_id_ = model_.getFrameId(end_effector_link_);
+  ee_frame_id_ = model_.getFrameId(end_effector_frame_);
   return true;
 }
 
@@ -565,7 +564,7 @@ void Franka_IJK::controlLoop()
     Eigen::VectorXd dq = Eigen::VectorXd::Zero(model_.nv);
 
     pinocchio::SE3 tf_se3 = pinocchio::SE3::Identity();
-    tfLookup(target_frame_, arm_prefix_ + "rh_p12_rn_grasp_point", tf_se3);
+    tfLookup(target_frame_, end_effector_frame_, tf_se3);
 
     publishDebugInfos(current_se3, current_se3, current_se3, tf_se3, desired_cartesian_velocity, dq);
     if (!bypass_safety_) {
@@ -578,7 +577,7 @@ void Franka_IJK::controlLoop()
   pinocchio::SE3 current_se3 = computeForwardKinematic(q_cmd_);
 
   pinocchio::SE3 tf_se3 = pinocchio::SE3::Identity();
-  tfLookup(target_frame_, arm_prefix_ + "rh_p12_rn_grasp_point", tf_se3);
+  tfLookup(target_frame_, end_effector_frame_, tf_se3);
 
   pinocchio::SE3 active_target_se3 = getInterpolatedTarget(target_se3_, dt_);
 
