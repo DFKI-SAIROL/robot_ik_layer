@@ -11,6 +11,7 @@
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "franka_custom_msgs/msg/fijk_debug.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "franka_custom_msgs/srv/set_pose_stamped.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -45,8 +46,11 @@ private:
   bool loadPinocchioModel();
   bool loadOtherPinocchioModel(std::string other_ns);
   void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
-  void targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+  void targetPoseServiceCallback(const std::shared_ptr<franka_custom_msgs::srv::SetPoseStamped::Request> request,
+                                 std::shared_ptr<franka_custom_msgs::srv::SetPoseStamped::Response> response);
   void targetDQCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
+  
+  bool processTargetPose(const geometry_msgs::msg::PoseStamped& msg);
 
   void otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
   void otherRobotDescriptionCallback(const std_msgs::msg::String::SharedPtr msg);
@@ -67,7 +71,7 @@ private:
   rcl_interfaces::msg::SetParametersResult parametersCallback(const std::vector<rclcpp::Parameter> &parameters);
 
   // ROS 2 components
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_sub_;
+  rclcpp::Service<franka_custom_msgs::srv::SetPoseStamped>::SharedPtr target_pose_srv_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr target_dq_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_, other_joint_state_subscriber_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr other_robot_description_subscriber_;

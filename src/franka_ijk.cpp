@@ -4,7 +4,7 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
 {
 
   // Setup Publisher and Subscriber
-  target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("target_pose", 1, std::bind(&Franka_IJK::targetPoseCallback, this, std::placeholders::_1));
+  target_pose_srv_ = this->create_service<franka_custom_msgs::srv::SetPoseStamped>("target_pose", std::bind(&Franka_IJK::targetPoseServiceCallback, this, std::placeholders::_1, std::placeholders::_2));
   target_dq_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("target_dq", 1, std::bind(&Franka_IJK::targetDQCallback, this, std::placeholders::_1));
   joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("joint_states", 1, std::bind(&Franka_IJK::jointStateCallback, this, std::placeholders::_1));
         
@@ -189,17 +189,28 @@ void Franka_IJK::jointStateCallback(const sensor_msgs::msg::JointState::SharedPt
   }
 }
 
+void Franka_IJK::targetPoseServiceCallback(const std::shared_ptr<franka_custom_msgs::srv::SetPoseStamped::Request> request,
+                                          std::shared_ptr<franka_custom_msgs::srv::SetPoseStamped::Response> response)
+{
+  bool success = processTargetPose(request->pose);
+  response->success = success;
+  if (success) {
+    response->message = "Target pose updated successfully";
+  } else {
+    response->message = "Failed to transform target pose";
+  }
+}
 
-void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+bool Franka_IJK::processTargetPose(const geometry_msgs::msg::PoseStamped& msg)
 {
   try {
-    tf_buffer_->transform(*msg, target_pose_stamped_, target_frame_);
+    tf_buffer_->transform(msg, target_pose_stamped_, target_frame_);
   } 
   catch (tf2::TransformException & ex) 
   {
     RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Could not transform target pose from '%s' to '%s': %s",
-                  msg->header.frame_id.c_str(), target_frame_.c_str(), ex.what());
-    return; 
+                  msg.header.frame_id.c_str(), target_frame_.c_str(), ex.what());
+    return false; 
   }
 
   target_se3_.translation() << target_pose_stamped_.pose.position.x, target_pose_stamped_.pose.position.y, target_pose_stamped_.pose.position.z;
@@ -217,6 +228,7 @@ void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::Share
     RCLCPP_INFO(this->get_logger(), "Cartesian target received. Preempting policy control.");
     is_policy_active_ = false;
   }
+  return true;
 }
 
 
