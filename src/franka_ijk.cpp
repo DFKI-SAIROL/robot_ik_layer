@@ -83,6 +83,9 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   param_callback_handle_ = this->add_on_set_parameters_callback(
       std::bind(&Franka_IJK::parametersCallback, this, std::placeholders::_1));
 
+  this->declare_parameter("end_effector_frame", "");
+  end_effector_frame_ = this->get_parameter("end_effector_frame").as_string();
+
   // Load Pinocchio Model
   if (!loadPinocchioModel()) {
     RCLCPP_FATAL(this->get_logger(), "Failed to load Pinocchio model. Shutting down.");
@@ -153,7 +156,12 @@ bool Franka_IJK::loadPinocchioModel()
     return false;
   }
 
-  std::string end_effector_link_ = arm_prefix_ + "rh_p12_rn_grasp_point";
+  std::string end_effector_link_ = end_effector_frame_;
+  if (end_effector_link_.empty())
+  {
+    end_effector_link_ = arm_prefix_ + "rh_p12_rn_grasp_point";
+    RCLCPP_WARN(this->get_logger(), "end_effector_frame parameter not set. Falling back to default: %s", end_effector_link_.c_str());
+  }
 
   if (!model_.existFrame(end_effector_link_)) {
     RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", end_effector_link_.c_str());

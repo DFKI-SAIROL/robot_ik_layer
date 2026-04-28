@@ -52,6 +52,7 @@ def generate_robot_nodes(context):
                             'arm_prefix': str(config['namespace']),
                             'init_joint_position': config['init_joint_position'],
                             'bypass_safety': bypass_safety,
+                            'end_effector_frame': str(config['end_effector_frame']),
                         }
                     ],
                     output="screen",

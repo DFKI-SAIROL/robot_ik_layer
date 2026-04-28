@@ -92,6 +92,7 @@ private:
   pinocchio::Model model_;
   std::unique_ptr<pinocchio::Data> data_;
   pinocchio::FrameIndex ee_frame_id_;
+  std::string end_effector_frame_;
 
   // State variables
   std::string target_frame_ = "world";
