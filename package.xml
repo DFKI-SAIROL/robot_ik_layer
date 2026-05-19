@@ -3,8 +3,8 @@
 <package format="3">
   <name>robot_ik_layer</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="simongroeger08@gmail.com">simon</maintainer>
+  <description>Robot inverse kinematics layer to produce the desired target joint position (before the safety node)</description>
+  <maintainer email="DFKI@gmail.com">DFKI</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -19,6 +19,7 @@
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
+  <depend>robot_safety_layer</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

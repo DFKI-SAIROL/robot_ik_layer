@@ -16,20 +16,17 @@ find_package(trajectory_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-find_package(moveit_ros_planning_interface REQUIRED)
-find_package(moveit_ros_planning REQUIRED)
-find_package(moveit_ros_move_group REQUIRED)
-find_package(moveit_core REQUIRED)
 find_package(pinocchio REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(robot_safety_layer REQUIRED)
 
 include_directories(
   include
 )
 
-add_executable(safety_node src/franka_ijk.cpp src/safety_layer.cpp src/vis.cpp)
+add_executable(ik_node src/franka_ijk.cpp)
 
-ament_target_dependencies(safety_node
+ament_target_dependencies(ik_node
   rclcpp
   geometry_msgs
   std_msgs
@@ -40,22 +37,20 @@ ament_target_dependencies(safety_node
   tf2_geometry_msgs
   visualization_msgs
   franka_custom_msgs
-  #moveit_core
-  #moveit_ros_planning
-  #moveit_ros_planning_interface
-  #moveit_ros_move_group
   pinocchio
+  robot_safety_layer
 )
 
-install(TARGETS safety_node
+
+install(TARGETS ik_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch)
 
-install(DIRECTORY config/
-  DESTINATION share/${PROJECT_NAME}/config)
+# install(DIRECTORY config/
+#   DESTINATION share/${PROJECT_NAME}/config)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
