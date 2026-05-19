@@ -36,7 +36,7 @@ def generate_robot_nodes(context):
             nodes.append(
                 Node(
                     package="robot_safety_layer",
-                    executable="franka_safety_node",
+                    executable="franka_controller_node",
                     name="safety_node",
                     namespace=ns,
                     parameters=[

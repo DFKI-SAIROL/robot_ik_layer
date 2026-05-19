@@ -42,33 +42,23 @@ public:
 private:
   bool loadPinocchioModel();
   void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
-  void targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+  void safeTargetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
   bool processTargetPose(const geometry_msgs::msg::PoseStamped& msg);
-
-  void otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
-  void otherRobotDescriptionCallback(const std_msgs::msg::String::SharedPtr msg);
-
-  bool tfLookup(std::string frame_from, std::string frame_to, pinocchio::SE3& result);
-
-  geometry_msgs::msg::Pose convert(pinocchio::SE3 se3);
-  geometry_msgs::msg::Twist convert(Eigen::VectorXd v);
 
   pinocchio::SE3 computeForwardKinematic(Eigen::VectorXd q);
   double computeCartesianVelocity(const pinocchio::SE3& current_se3, const pinocchio::SE3& target_se3,
                                   Eigen::VectorXd& desired_cartesian_velocity);
   Eigen::VectorXd runJacobianNullspaceControl(const Eigen::VectorXd& desired_cartesian_velocity);
   void controlLoop();
+  pinocchio::SE3 getInterpolatedTarget(const pinocchio::SE3& raw_target, double dt);
 
   rcl_interfaces::msg::SetParametersResult parametersCallback(const std::vector<rclcpp::Parameter>& parameters);
 
   // ROS 2 components
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr safe_target_pose_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr target_dq_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_, other_joint_state_subscriber_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr other_robot_description_subscriber_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr target_dq_pub_;
-  rclcpp::Publisher<franka_custom_msgs::msg::FIJKDebug>::SharedPtr debug_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
@@ -89,7 +79,6 @@ private:
   std::string target_frame_ = "world";
   geometry_msgs::msg::PoseStamped target_pose_stamped_;
   pinocchio::SE3 target_se3_;  // Target pose (Pinocchio format)
-  Eigen::VectorXd target_dq;   // Target delta joint positions
 
   Eigen::VectorXd q_;       // Current joint configuration (actual measured state)
   Eigen::VectorXd q_init_;  // Initial joint configuration for nullspace posture control
@@ -111,6 +100,4 @@ private:
   double timer_dt_ = 0.005;               // Timer update rate (e.g. 200Hz = 0.005)
   bool first_target_received_ = false;
   pinocchio::SE3 smooth_target_se3_ = pinocchio::SE3::Identity();
-
-  pinocchio::SE3 getInterpolatedTarget(const pinocchio::SE3& raw_target, double dt);
 };

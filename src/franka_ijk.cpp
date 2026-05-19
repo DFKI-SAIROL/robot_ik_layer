@@ -7,7 +7,7 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   // Initialize Publisher for dq
   target_dq_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("target_dq", 1);
   safe_target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-      "safe_target_pose", 1, std::bind(&Franka_IJK::targetPoseCallback, this, std::placeholders::_1));
+      "safe_target_pose", 1, std::bind(&Franka_IJK::safeTargetPoseCallback, this, std::placeholders::_1));
   joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>(
       "joint_states", 1, std::bind(&Franka_IJK::jointStateCallback, this, std::placeholders::_1));
 
@@ -47,7 +47,6 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
     rclcpp::shutdown();
     return;
   }
-  // q_init_ is sized to model_.nv after the model is loaded (see below)
 
   // Parameter declarations for Tuneable Variables
   this->declare_parameter("velocity_gain", 5.0);
@@ -98,25 +97,6 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   }
   RCLCPP_INFO(this->get_logger(), "Initial joint position loaded for nullspace control. model_.nv=%d", model_.nv);
 
-  // Load Pinocchio Model
-  // if(safety_layer_.other_robot_check && !bypass_safety_)
-  // {
-  //   if (!loadOtherPinocchioModel(other_ns)) {
-  //     RCLCPP_FATAL(this->get_logger(), "Failed to load other Pinocchio model. Shutting down.");
-  //     rclcpp::shutdown();
-  //     return;
-  //   }
-  // }
-  // else
-  // {
-  //   RCLCPP_ERROR(this->get_logger(), "Not loading other Pinocchio model.");
-  // }
-
-  // if (!bypass_safety_) {
-  //   auto init_cartesian = computeForwardKinematic(q_init_).translation();
-  //   safety_layer_.init(init_cartesian, marker_pub_);
-  // }
-
   timer_ = this->create_wall_timer(std::chrono::duration<double>(timer_dt_), std::bind(&Franka_IJK::controlLoop, this));
 
   RCLCPP_INFO(this->get_logger(), "franka_ijk initialized.");
@@ -166,7 +146,7 @@ void Franka_IJK::jointStateCallback(const sensor_msgs::msg::JointState::SharedPt
   }
 }
 
-void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+void Franka_IJK::safeTargetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
 {
   processTargetPose(*msg);
 }
@@ -193,106 +173,6 @@ bool Franka_IJK::processTargetPose(const geometry_msgs::msg::PoseStamped& msg)
   target_se3_.rotation() = q_rot.toRotationMatrix();
 
   return true;
-}
-
-// targetDQCallback removed: Policy now talks directly to Safety Node
-
-// other robot
-// void Franka_IJK::otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
-// {
-//   RCLCPP_INFO_ONCE(this->get_logger(), "Other joint cb");
-//   if (!bypass_safety_) {
-//     if (safety_layer_.other_q_.size() != safety_layer_.other_model_.nv) {
-//       safety_layer_.other_q_ = Eigen::VectorXd::Zero(safety_layer_.other_model_.nv);
-//     }
-//     for (size_t i = 0; i < msg->name.size(); ++i) {
-//       if (safety_layer_.other_model_.existJointName(msg->name[i])) {
-//         int idx_q = safety_layer_.other_model_.joints[safety_layer_.other_model_.getJointId(msg->name[i])].idx_q();
-//         if (idx_q >= 0 && idx_q < safety_layer_.other_model_.nq) {
-//           safety_layer_.other_q_(idx_q) = msg->position[i];
-//         }
-//       }
-//     }
-//   }
-// }
-
-// bool Franka_IJK::loadOtherPinocchioModel(std::string other_ns)
-// {
-//   if (!robot_safety_layer::ModelLoader::loadOtherPinocchioModel(this, safety_layer_.other_model_,
-//   safety_layer_.other_data_, other_ns)) {
-//     return false;
-//   }
-
-//   std::string other_end_effector_link_ = other_ns + "_fr3_link8";
-
-//   if (!safety_layer_.other_model_.existFrame(other_end_effector_link_)) {
-//     RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", other_end_effector_link_.c_str());
-//     return false;
-//   }
-
-//   safety_layer_.other_ee_frame_id_ = safety_layer_.other_model_.getFrameId(other_end_effector_link_);
-//   return true;
-// }
-
-bool Franka_IJK::tfLookup(std::string frame_from, std::string frame_to, pinocchio::SE3& result)
-{
-  geometry_msgs::msg::TransformStamped transform_stamped;
-  try
-  {
-    transform_stamped =
-        tf_buffer_->lookupTransform(frame_from, frame_to, tf2::TimePointZero, std::chrono::milliseconds(100));
-  }
-  catch (const tf2::TransformException& ex)
-  {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Could not transform: %s", ex.what());
-    return false;
-  }
-
-  result.translation() << transform_stamped.transform.translation.x, transform_stamped.transform.translation.y,
-      transform_stamped.transform.translation.z;
-
-  Eigen::Quaterniond q_rot(transform_stamped.transform.rotation.w, transform_stamped.transform.rotation.x,
-                           transform_stamped.transform.rotation.y, transform_stamped.transform.rotation.z);
-  result.rotation() = q_rot.toRotationMatrix();
-
-  return true;
-}
-
-geometry_msgs::msg::Pose Franka_IJK::convert(pinocchio::SE3 se3)
-{
-  geometry_msgs::msg::Pose pose_msg;
-
-  pose_msg.position.x = se3.translation()(0);
-  pose_msg.position.y = se3.translation()(1);
-  pose_msg.position.z = se3.translation()(2);
-
-  Eigen::Quaterniond q(se3.rotation());
-  pose_msg.orientation.x = q.x();
-  pose_msg.orientation.y = q.y();
-  pose_msg.orientation.z = q.z();
-  pose_msg.orientation.w = q.w();
-
-  return pose_msg;
-}
-
-geometry_msgs::msg::Twist Franka_IJK::convert(Eigen::VectorXd v)
-{
-  geometry_msgs::msg::Twist twist_msg;
-
-  if (v.size() != 6)
-  {
-    return twist_msg;
-  }
-
-  twist_msg.linear.x = v(0);
-  twist_msg.linear.y = v(1);
-  twist_msg.linear.z = v(2);
-
-  twist_msg.angular.x = v(3);
-  twist_msg.angular.y = v(4);
-  twist_msg.angular.z = v(5);
-
-  return twist_msg;
 }
 
 pinocchio::SE3 Franka_IJK::computeForwardKinematic(Eigen::VectorXd q)
@@ -332,18 +212,6 @@ double Franka_IJK::computeCartesianVelocity(const pinocchio::SE3& current_se3, c
     target_reachable_factor = 1 / reduction;
     desired_cartesian_velocity *= reduction;
   }
-
-  // moved to franka_safety_node
-  // if (!bypass_safety_)
-  // {
-  //   double max_safe_v = safety_layer_.getMaxSafeVelocity(current_se3.translation(), desired_cartesian_velocity);
-  //   if (desired_cartesian_velocity.norm() > max_safe_v)
-  //   {
-  //     double reduction = max_safe_v / desired_cartesian_velocity.norm();
-  //     target_reachable_factor = 1;
-  //     desired_cartesian_velocity *= reduction;
-  //   }
-  // }
 
   // Apply tolerance to stop movement near target
   if (desired_cartesian_velocity.norm() < 1e-3)
@@ -425,25 +293,13 @@ void Franka_IJK::controlLoop()
   // --- Normal Execution ---
   pinocchio::SE3 current_se3 = computeForwardKinematic(q_);
 
-  // pinocchio::SE3 tf_se3 = pinocchio::SE3::Identity();
-  // tfLookup(target_frame_, end_effector_frame_, tf_se3);
-
   pinocchio::SE3 active_target_se3 = getInterpolatedTarget(target_se3_, dt_);
-
-  RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-                       "target=[%.3f,%.3f,%.3f] current=[%.3f,%.3f,%.3f] err=%.4f", active_target_se3.translation().x(),
-                       active_target_se3.translation().y(), active_target_se3.translation().z(),
-                       current_se3.translation().x(), current_se3.translation().y(), current_se3.translation().z(),
-                       (active_target_se3.translation() - current_se3.translation()).norm());
 
   // --- Compute Primary Task (Cartesian Error and Velocity) ---
   Eigen::VectorXd desired_cartesian_velocity;
   computeCartesianVelocity(current_se3, active_target_se3, desired_cartesian_velocity);
 
   Eigen::VectorXd dq = runJacobianNullspaceControl(desired_cartesian_velocity);
-
-  RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500, "cart_vel_norm=%.4f dq_max=%.6f",
-                       desired_cartesian_velocity.norm(), dq.array().abs().maxCoeff());
 
   // --- Velocity Limiting ---
   double max_dq = dq.array().abs().maxCoeff();
@@ -466,8 +322,6 @@ void Franka_IJK::controlLoop()
   }
   target_dq_pub_->publish(dq_msg);
 }
-
-// publishCommand and publishDebugInfos removed: Responsibility moved to Safety Node or specialized Debug Node
 
 rcl_interfaces::msg::SetParametersResult
 Franka_IJK::parametersCallback(const std::vector<rclcpp::Parameter>& parameters)
@@ -567,10 +421,6 @@ pinocchio::SE3 Franka_IJK::getInterpolatedTarget(const pinocchio::SE3& raw_targe
 
   return smooth_target_se3_;
 }
-
-// =================================================================================
-// Main Function
-// =================================================================================
 
 int main(int argc, char* argv[])
 {
