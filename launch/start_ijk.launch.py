@@ -1,21 +1,23 @@
 import os
-import yaml
+import sys
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-def load_yaml(file_path):
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-    with open(file_path, 'r') as file:
-        return yaml.safe_load(file)
+utils_path = os.path.join(
+    get_package_share_directory('franka_launch'), '..', '..', 'lib', 'franka_launch', 'utils'
+)
+sys.path.append(os.path.abspath(utils_path))
+from launch_utils import load_yaml, merge_overrides  # noqa: E402
 
 def generate_robot_nodes(context):
     nodes = []
     config_file = LaunchConfiguration('robot_config_file').perform(context)
     configs = load_yaml(config_file)
+    overrides_file = LaunchConfiguration('overrides_file').perform(context)
     bypass_safety = LaunchConfiguration('bypass_safety').perform(context).lower() == 'true'
     safety_config_file = LaunchConfiguration('safety_config_file').perform(context)
 
@@ -28,7 +30,8 @@ def generate_robot_nodes(context):
         spawn_robots.append("franka_right")
     
     for item_name, config in configs.items():
-        if item_name in spawn_robots: 
+        if item_name in spawn_robots:
+            config = merge_overrides(config, overrides_file, item_name)
             ns = config['namespace']
             print(f"Spawning controllers for: {item_name} (Namespace: {ns})")
 
@@ -84,9 +87,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'safety_config_file',
             default_value=PathJoinSubstitution([
-                FindPackageShare('robot_safety_layer'), 'config', 'safety_params.yaml'
+                FindPackageShare('franka_launch'), 'config', 'safety_params.yaml'
             ]),
             description='Path to the safety parameters config file',
+        ),
+        DeclareLaunchArgument(
+            'overrides_file',
+            default_value='',
+            description='Path to a robot_overrides.yaml that overrides per-arm config keys',
         ),
         DeclareLaunchArgument("spawn_franka_main", default_value="false"),
         DeclareLaunchArgument("spawn_franka_left", default_value="true"),
