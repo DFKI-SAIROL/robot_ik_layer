@@ -11,22 +11,43 @@ utils_path = os.path.join(
     get_package_share_directory('franka_launch'), '..', '..', 'lib', 'franka_launch', 'utils'
 )
 sys.path.append(os.path.abspath(utils_path))
-from launch_utils import load_yaml, merge_overrides  # noqa: E402
+from launch_utils import (  # noqa: E402
+    load_overrides,
+    load_yaml,
+    merge_overrides,
+    resolve_bool_override,
+)
 
 def generate_robot_nodes(context):
     nodes = []
     config_file = LaunchConfiguration('robot_config_file').perform(context)
     configs = load_yaml(config_file)
     overrides_file = LaunchConfiguration('overrides_file').perform(context)
-    bypass_safety = LaunchConfiguration('bypass_safety').perform(context).lower() == 'true'
+    overrides = load_overrides(overrides_file)
+    bypass_safety = resolve_bool_override(
+        overrides,
+        'bypass_safety',
+        LaunchConfiguration('bypass_safety').perform(context),
+        False,
+    )
     safety_config_file = LaunchConfiguration('safety_config_file').perform(context)
 
     spawn_robots = []
     if LaunchConfiguration('spawn_franka_main').perform(context).lower() == 'true':
         spawn_robots.append("franka_main")
-    if LaunchConfiguration('spawn_franka_left').perform(context).lower() == 'true':
+    if resolve_bool_override(
+        overrides,
+        'spawn_franka_left',
+        LaunchConfiguration('spawn_franka_left').perform(context),
+        True,
+    ):
         spawn_robots.append("franka_left")
-    if LaunchConfiguration('spawn_franka_right').perform(context).lower() == 'true':
+    if resolve_bool_override(
+        overrides,
+        'spawn_franka_right',
+        LaunchConfiguration('spawn_franka_right').perform(context),
+        True,
+    ):
         spawn_robots.append("franka_right")
     
     for item_name, config in configs.items():
@@ -97,9 +118,9 @@ def generate_launch_description():
             description='Path to a robot_overrides.yaml that overrides per-arm config keys',
         ),
         DeclareLaunchArgument("spawn_franka_main", default_value="false"),
-        DeclareLaunchArgument("spawn_franka_left", default_value="true"),
-        DeclareLaunchArgument("spawn_franka_right", default_value="true"),
-        DeclareLaunchArgument("bypass_safety", default_value="false"),
+        DeclareLaunchArgument("spawn_franka_left", default_value=""),
+        DeclareLaunchArgument("spawn_franka_right", default_value=""),
+        DeclareLaunchArgument("bypass_safety", default_value=""),
 
         OpaqueFunction(function=generate_robot_nodes),
     ])
