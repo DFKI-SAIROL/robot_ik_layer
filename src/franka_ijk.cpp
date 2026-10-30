@@ -54,6 +54,12 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   this->declare_parameter("cartesian_velocity_limit", 1.0);
   this->declare_parameter("K_NULL", 0.1);
   this->declare_parameter("dls_lambda", 0.0001);
+  this->declare_parameter("dls_lambda_max", 0.05);
+  this->declare_parameter("singularity_threshold", 0.1);
+  this->declare_parameter("joint_limit_buffer", 0.15);
+  this->declare_parameter("joint_limit_gain", 5.0);
+  this->declare_parameter("singularity_sigma_stop", 0.04);
+  this->declare_parameter("singularity_gain", 2.0);
   this->declare_parameter("max_spring_stretch", 0.1);
   this->declare_parameter("use_target_interpolation", true);
   this->declare_parameter("target_dt", 0.02);
@@ -64,6 +70,12 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   cartesian_velocity_limit_ = this->get_parameter("cartesian_velocity_limit").as_double();
   K_NULL_ = this->get_parameter("K_NULL").as_double();
   dls_lambda_ = this->get_parameter("dls_lambda").as_double();
+  dls_lambda_max_ = this->get_parameter("dls_lambda_max").as_double();
+  singularity_threshold_ = this->get_parameter("singularity_threshold").as_double();
+  joint_limit_buffer_ = this->get_parameter("joint_limit_buffer").as_double();
+  joint_limit_gain_ = this->get_parameter("joint_limit_gain").as_double();
+  singularity_sigma_stop_ = this->get_parameter("singularity_sigma_stop").as_double();
+  singularity_gain_ = this->get_parameter("singularity_gain").as_double();
   max_spring_stretch_ = this->get_parameter("max_spring_stretch").as_double();
   use_target_interpolation_ = this->get_parameter("use_target_interpolation").as_bool();
   target_dt_ = this->get_parameter("target_dt").as_double();
@@ -222,6 +234,14 @@ double Franka_IJK::computeCartesianVelocity(const pinocchio::SE3& current_se3, c
   return target_reachable_factor;
 }
 
+double Franka_IJK::computeSigmaMin(const Eigen::VectorXd& q)
+{
+  Eigen::MatrixXd J = Eigen::MatrixXd::Zero(6, model_.nv);
+  pinocchio::computeFrameJacobian(model_, *data_, q, ee_frame_id_, pinocchio::LOCAL_WORLD_ALIGNED, J);
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(J);
+  return svd.singularValues()(svd.singularValues().size() - 1);
+}
+
 Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& desired_cartesian_velocity)
 {
   // 1. Update Kinematics (needed for Jacobian calculation)
@@ -232,29 +252,110 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
   J.setZero();
   pinocchio::getFrameJacobian(model_, *data_, ee_frame_id_, pinocchio::LOCAL_WORLD_ALIGNED, J);
 
-  // 3. Compute the Damped Least Squares Pseudo-Inverse (J_dagger)
-  const double lambda = dls_lambda_;  // Damping factor for DLS
-  Eigen::MatrixXd J_dagger = J.transpose() * (J * J.transpose() + lambda * Eigen::MatrixXd::Identity(6, 6)).inverse();
-
-  // 4. Primary Task: Cartesian Velocity
-  Eigen::VectorXd dq_prim = J_dagger * desired_cartesian_velocity;
-
-  // Check for inaccuracies in inverse kinematics
-  Eigen::VectorXd achieved_cartesian_velocity = J * dq_prim;
-
-  // 5. Secondary Task: Nullspace Posture Control
-  // 5.2. Compute the Nullspace Projector: N = I - J_dagger * J
-  Eigen::MatrixXd N = Eigen::MatrixXd::Identity(model_.nv, model_.nv) - J_dagger * J;
-
-  // 5.3. Secondary Task Velocity (Posture Control): dq_null_task = K_NULL_ * (q_init - q_curr)
+  // 3. Secondary Task Velocity (Posture Control): dq_null_task = K_NULL_ * (q_init - q_curr)
   Eigen::VectorXd joint_error_posture = q_init_ - q_;
   Eigen::VectorXd dq_null_task = K_NULL_ * joint_error_posture;
 
-  // 5.4. Projected Nullspace Command: dq_null = N * dq_null_task
-  Eigen::VectorXd dq_null = N * dq_null_task;
+  // 4. Joint limit velocity bounds for the arm joints: a joint may approach (limit - buffer) only
+  // exponentially (dq <= gain * remaining distance), so it slows down smoothly and never gets there.
+  std::vector<int> arm_idx;
+  for (int i = 0; i < 7; ++i)
+  {
+    arm_idx.push_back(model_.joints[model_.getJointId(arm_prefix_ + "fr3_joint" + std::to_string(i + 1))].idx_v());
+  }
+  Eigen::VectorXd ub = Eigen::VectorXd::Constant(model_.nv, std::numeric_limits<double>::infinity());
+  Eigen::VectorXd lb = -ub;
+  for (int i : arm_idx)
+  {
+    ub(i) = joint_limit_gain_ * (model_.upperPositionLimit(i) - joint_limit_buffer_ - q_(i));
+    lb(i) = joint_limit_gain_ * (model_.lowerPositionLimit(i) + joint_limit_buffer_ - q_(i));
+  }
 
-  // 5.6. Combine Commands: dq = dq_prim + dq_null
-  Eigen::VectorXd dq = dq_prim + dq_null;
+  // 5. Solve with saturation in the null space: the joint violating its bound the most is fixed at
+  // its bound, its contribution is removed from the task, and the rest of the arm re-solves the task.
+  std::vector<bool> saturated(model_.nv, false);
+  Eigen::VectorXd dq_fixed = Eigen::VectorXd::Zero(model_.nv);
+  Eigen::VectorXd dq = Eigen::VectorXd::Zero(model_.nv);
+  for (size_t iter = 0; iter <= arm_idx.size(); ++iter)
+  {
+    Eigen::MatrixXd J_active = J;
+    Eigen::VectorXd null_task = dq_null_task;
+    for (int i = 0; i < model_.nv; ++i)
+    {
+      if (saturated[i])
+      {
+        J_active.col(i).setZero();
+        null_task(i) = 0.0;
+      }
+    }
+    Eigen::VectorXd task_velocity = desired_cartesian_velocity - (J - J_active) * dq_fixed;
+
+    // 5.1. Damped Least Squares with adaptive damping: dls_lambda_ is the base damping, raised
+    // smoothly up to dls_lambda_ + dls_lambda_max_ as the smallest singular value drops below singularity_threshold_
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_active);
+    double sigma_min = svd.singularValues()(svd.singularValues().size() - 1);
+    double lambda = dls_lambda_;
+    if (sigma_min < singularity_threshold_)
+    {
+      double ratio = sigma_min / singularity_threshold_;
+      lambda += (1.0 - ratio * ratio) * dls_lambda_max_;
+    }
+    Eigen::MatrixXd J_dagger =
+        J_active.transpose() * (J_active * J_active.transpose() + lambda * Eigen::MatrixXd::Identity(6, 6)).inverse();
+
+    // 5.2. Primary Task (Cartesian velocity) + Nullspace Posture Control: N = I - J_dagger * J
+    Eigen::MatrixXd N = Eigen::MatrixXd::Identity(model_.nv, model_.nv) - J_dagger * J_active;
+    dq = J_dagger * task_velocity + N * null_task;
+    for (int i = 0; i < model_.nv; ++i)
+    {
+      if (saturated[i])
+        dq(i) = dq_fixed(i);
+    }
+
+    // 5.3. Saturate the worst offender, if any
+    int worst = -1;
+    double worst_violation = 1e-9;
+    for (int i : arm_idx)
+    {
+      double violation = std::max(dq(i) - ub(i), lb(i) - dq(i));
+      if (!saturated[i] && violation > worst_violation)
+      {
+        worst = i;
+        worst_violation = violation;
+      }
+    }
+    if (worst < 0)
+      break;
+    saturated[worst] = true;
+    dq_fixed(worst) = std::clamp(dq(worst), lb(worst), ub(worst));
+  }
+
+  // Inside the buffer the bound turns negative; only require "not further out" there
+  for (int i : arm_idx)
+  {
+    dq(i) = std::clamp(dq(i), std::min(lb(i), 0.0), std::max(ub(i), 0.0));
+  }
+
+  // 6. Singularity barrier: the smallest singular value may only decrease as fast as
+  // singularity_gain * (sigma - singularity_sigma_stop). Moving towards a singularity slows the arm
+  // down smoothly until it stops at sigma_stop; moving away from it is never slowed.
+  double sigma = computeSigmaMin(q_);
+  Eigen::VectorXd grad = Eigen::VectorXd::Zero(model_.nv);
+  const double h = 1e-5;
+  for (int i : arm_idx)
+  {
+    Eigen::VectorXd q_plus = q_, q_minus = q_;
+    q_plus(i) += h;
+    q_minus(i) -= h;
+    grad(i) = (computeSigmaMin(q_plus) - computeSigmaMin(q_minus)) / (2.0 * h);
+  }
+  double sigma_rate = grad.dot(dq);
+  double allowed_rate = -singularity_gain_ * (sigma - singularity_sigma_stop_);
+  if (sigma_rate < 0.0 && sigma_rate < allowed_rate)
+  {
+    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Singularity slowdown active");
+    dq *= std::clamp(allowed_rate / sigma_rate, 0.0, 1.0);
+  }
 
   return dq;
 }
@@ -357,6 +458,38 @@ Franka_IJK::parametersCallback(const std::vector<rclcpp::Parameter>& parameters)
     {
       dls_lambda_ = param.as_double();
       RCLCPP_INFO(this->get_logger(), "Updated dls_lambda to %f", dls_lambda_);
+    }
+    else if (param.get_name() == "dls_lambda_max" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
+    {
+      dls_lambda_max_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated dls_lambda_max to %f", dls_lambda_max_);
+    }
+    else if (param.get_name() == "singularity_threshold" &&
+             param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
+    {
+      singularity_threshold_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated singularity_threshold to %f", singularity_threshold_);
+    }
+    else if (param.get_name() == "joint_limit_buffer" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
+    {
+      joint_limit_buffer_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated joint_limit_buffer to %f", joint_limit_buffer_);
+    }
+    else if (param.get_name() == "joint_limit_gain" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
+    {
+      joint_limit_gain_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated joint_limit_gain to %f", joint_limit_gain_);
+    }
+    else if (param.get_name() == "singularity_sigma_stop" &&
+             param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
+    {
+      singularity_sigma_stop_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated singularity_sigma_stop to %f", singularity_sigma_stop_);
+    }
+    else if (param.get_name() == "singularity_gain" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
+    {
+      singularity_gain_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated singularity_gain to %f", singularity_gain_);
     }
     else if (param.get_name() == "max_spring_stretch" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
     {

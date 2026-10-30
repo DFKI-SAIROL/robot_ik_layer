@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 // ROS 2 Includes
 #include "rclcpp/rclcpp.hpp"
@@ -49,6 +50,7 @@ private:
   pinocchio::SE3 computeForwardKinematic(Eigen::VectorXd q);
   double computeCartesianVelocity(const pinocchio::SE3& current_se3, const pinocchio::SE3& target_se3,
                                   Eigen::VectorXd& desired_cartesian_velocity);
+  double computeSigmaMin(const Eigen::VectorXd& q);
   Eigen::VectorXd runJacobianNullspaceControl(const Eigen::VectorXd& desired_cartesian_velocity);
   void controlLoop();
   pinocchio::SE3 getInterpolatedTarget(const pinocchio::SE3& raw_target, double dt);
@@ -90,6 +92,12 @@ private:
   // Control gains
   double K_NULL_ = 0.1;              // Gain for nullspace posture task (Secondary Task)
   double dls_lambda_ = 0.0001;       // Damping factor for DLS
+  double dls_lambda_max_ = 0.05;     // Extra DLS damping added at a singularity
+  double singularity_threshold_ = 0.1;  // Smallest singular value below which damping ramps up
+  double joint_limit_buffer_ = 0.15;    // [rad] Joints approach a limit only up to this distance
+  double joint_limit_gain_ = 5.0;       // [1/s] How fast a joint may approach (limit - buffer)
+  double singularity_sigma_stop_ = 0.04;  // Smallest singular value at which motion into a singularity stops
+  double singularity_gain_ = 2.0;         // [1/s] How fast sigma may approach singularity_sigma_stop
   double max_spring_stretch_ = 0.1;  // Maximum allowed position wind-up
   rclcpp::Time last_time_{ 0, 0, RCL_ROS_TIME };
   double dt_ = 1.0 / 50.0;
