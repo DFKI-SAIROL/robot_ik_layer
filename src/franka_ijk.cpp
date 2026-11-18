@@ -337,8 +337,10 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
   }
 
   // 6. Singularity barrier: the smallest singular value may only decrease as fast as
-  // singularity_gain * (sigma - singularity_sigma_stop). Moving towards a singularity slows the arm
-  // down smoothly until it stops at sigma_stop; moving away from it is never slowed.
+  // singularity_gain * (sigma - singularity_sigma_stop). Only the component of dq that drives sigma
+  // down too fast is removed (projected out along grad(sigma)); motion tangential to or away from the
+  // singularity keeps its full speed, so the arm can slide along it. At/below sigma_stop no further
+  // approach is allowed, but the arm is never actively pushed out.
   double sigma = computeSigmaMin(q_);
   Eigen::VectorXd grad = Eigen::VectorXd::Zero(model_.nv);
   const double h = 1e-5;
@@ -350,11 +352,17 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
     grad(i) = (computeSigmaMin(q_plus) - computeSigmaMin(q_minus)) / (2.0 * h);
   }
   double sigma_rate = grad.dot(dq);
-  double allowed_rate = -singularity_gain_ * (sigma - singularity_sigma_stop_);
-  if (sigma_rate < 0.0 && sigma_rate < allowed_rate)
+  double allowed_rate = std::min(0.0, -singularity_gain_ * (sigma - singularity_sigma_stop_));
+  double grad_sq = grad.squaredNorm();
+  if (sigma_rate < allowed_rate && grad_sq > 1e-12)
   {
     RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Singularity slowdown active");
-    dq *= std::clamp(allowed_rate / sigma_rate, 0.0, 1.0);
+    dq += ((allowed_rate - sigma_rate) / grad_sq) * grad;
+    // The correction must not push a joint past its limit bound
+    for (int i : arm_idx)
+    {
+      dq(i) = std::clamp(dq(i), std::min(lb(i), 0.0), std::max(ub(i), 0.0));
+    }
   }
 
   return dq;
