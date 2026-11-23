@@ -54,6 +54,8 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   this->declare_parameter("cartesian_velocity_limit", 1.0);
   this->declare_parameter("K_NULL", 0.1);
   this->declare_parameter("dls_lambda", 0.0001);
+  // max_spring_stretch belongs to the safety node, which applies the clamp; it is
+  // declared here only so the shared safety_params.yaml loads without warnings.
   this->declare_parameter("max_spring_stretch", 0.1);
   this->declare_parameter("use_target_interpolation", true);
   this->declare_parameter("target_dt", 0.02);
@@ -64,7 +66,6 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   cartesian_velocity_limit_ = this->get_parameter("cartesian_velocity_limit").as_double();
   K_NULL_ = this->get_parameter("K_NULL").as_double();
   dls_lambda_ = this->get_parameter("dls_lambda").as_double();
-  max_spring_stretch_ = this->get_parameter("max_spring_stretch").as_double();
   use_target_interpolation_ = this->get_parameter("use_target_interpolation").as_bool();
   target_dt_ = this->get_parameter("target_dt").as_double();
   timer_dt_ = this->get_parameter("timer_dt").as_double();
@@ -111,7 +112,7 @@ bool Franka_IJK::loadPinocchioModel()
 
   if (end_effector_frame_.empty())
   {
-    end_effector_frame_ = arm_prefix_ + "rh_p12_rn_grasp_point";
+    end_effector_frame_ = arm_prefix_ + "grasp_point";
     RCLCPP_WARN(this->get_logger(), "end_effector_frame parameter not set. Falling back to default: %s",
                 end_effector_frame_.c_str());
   }
@@ -357,11 +358,6 @@ Franka_IJK::parametersCallback(const std::vector<rclcpp::Parameter>& parameters)
     {
       dls_lambda_ = param.as_double();
       RCLCPP_INFO(this->get_logger(), "Updated dls_lambda to %f", dls_lambda_);
-    }
-    else if (param.get_name() == "max_spring_stretch" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE)
-    {
-      max_spring_stretch_ = param.as_double();
-      RCLCPP_INFO(this->get_logger(), "Updated max_spring_stretch to %f", max_spring_stretch_);
     }
     else if (param.get_name() == "use_target_interpolation" &&
              param.get_type() == rclcpp::ParameterType::PARAMETER_BOOL)

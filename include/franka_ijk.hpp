@@ -90,7 +90,6 @@ private:
   // Control gains
   double K_NULL_ = 0.1;              // Gain for nullspace posture task (Secondary Task)
   double dls_lambda_ = 0.0001;       // Damping factor for DLS
-  double max_spring_stretch_ = 0.1;  // Maximum allowed position wind-up
   rclcpp::Time last_time_{ 0, 0, RCL_ROS_TIME };
   double dt_ = 1.0 / 50.0;
 
